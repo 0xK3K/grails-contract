@@ -3,19 +3,10 @@ name = "grails"
 version = "0.1.0"
 
 [dependencies]
+alexandria_math = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
 openzeppelin = { git = "https://github.com/OpenZeppelin/cairo-contracts.git" }
 snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry" }
 starknet = ">=2.5.3"
 
 [[target.starknet-contract]]
 casm = true
-
-[tool.sncast.dev]
-account = "deployer"
-accounts-file = "/Users/k3k/.starknet_accounts/starknet_open_zeppelin_accounts.json"
-url = "https://starknet-testnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
-
-[[tool.snforge.fork]]
-name = "goerli"
-url = "https://starknet-testnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
-block_id.tag = "Latest"

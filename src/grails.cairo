@@ -1,3 +1,5 @@
+// class_hash: 0x6ef35aa5e81aa6ab87d805b0dae7a528543abe848318e22511d9d2329928bed
+
 #[starknet::interface]
 trait IGrails<TState> {
     fn allowance(
@@ -8,20 +10,39 @@ trait IGrails<TState> {
     fn balanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
     fn baseTokenURI(self: @TState) -> felt252;
     fn decimals(self: @TState) -> u8;
-    fn getApproved(self: @TState, amount: u256) -> starknet::ContractAddress;
+    fn erc20BalanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
+    fn erc20TotalSupply(self: @TState) -> u256;
+    fn erc721TokensBankedInQueue(self: @TState) -> u256;
+    fn erc721BalanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
+    fn erc721TotalSupply(self: @TState) -> u256;
+    fn getApproved(self: @TState, tokenId: u256) -> starknet::ContractAddress;
     fn isApprovedForAll(
-        self: @TState, owner: starknet::ContractAddress, spender: starknet::ContractAddress
+        self: @TState, owner: starknet::ContractAddress, operator: starknet::ContractAddress
     ) -> bool;
-    fn minted(self: @TState) -> u256;
-    fn name(self: @TState) -> felt252;
     fn owned(self: @TState, owner: starknet::ContractAddress) -> Array<u256>;
     fn ownerOf(self: @TState, id: u256) -> starknet::ContractAddress;
+    fn name(self: @TState) -> felt252;
+    fn safe_transfer_from(
+        ref self: TState,
+        from: starknet::ContractAddress,
+        to: starknet::ContractAddress,
+        amount_or_id: u256,
+        data: Span<felt252>
+    );
+    fn safeTransferFrom(
+        ref self: TState,
+        from: starknet::ContractAddress,
+        to: starknet::ContractAddress,
+        amountOrId: u256,
+        data: Span<felt252>
+    );
     fn setApprovalForAll(ref self: TState, operator: starknet::ContractAddress, approved: bool);
     fn setDataURI(ref self: TState, dataURI: felt252);
     fn setTokenURI(ref self: TState, baseTokenURI: felt252);
     fn setWhitelist(ref self: TState, target: starknet::ContractAddress, state: bool);
     fn symbol(self: @TState) -> felt252;
-    fn tokenURI(self: @TState, id: u256) -> felt252;
+    fn token_uri(self: @TState, token_id: u256) -> felt252;
+    fn tokenURI(self: @TState, tokenId: u256) -> felt252;
     fn total_supply(self: @TState) -> u256;
     fn totalSupply(self: @TState) -> u256;
     fn transfer(ref self: TState, to: starknet::ContractAddress, amount: u256) -> bool;
@@ -29,26 +50,31 @@ trait IGrails<TState> {
         ref self: TState,
         from: starknet::ContractAddress,
         to: starknet::ContractAddress,
-        amountOrId: u256
-    );
+        amount_or_id: u256
+    ) -> bool;
     fn transferFrom(
         ref self: TState,
         from: starknet::ContractAddress,
         to: starknet::ContractAddress,
         amountOrId: u256
-    );
+    ) -> bool;
+    fn units(self: @TState) -> u256;
     fn whitelist(self: @TState, address: starknet::ContractAddress) -> bool;
 }
 
 #[starknet::contract]
 mod Grails {
+    use alexandria_storage::list::{List, ListTrait};
     use integer::BoundedU256;
     use openzeppelin::{
-        access::ownable::OwnableComponent, token::erc20,
+        account, access::ownable::OwnableComponent,
+        introspection::dual_src5::{DualCaseSRC5, DualCaseSRC5Trait}, token::erc20,
+        token::erc721::{
+            dual721_receiver::{DualCaseERC721Receiver, DualCaseERC721ReceiverTrait}, interface
+        },
         upgrades::{UpgradeableComponent, interface::IUpgradeable}
     };
     use starknet::{ClassHash, ContractAddress, contract_address_const, get_caller_address};
-    use starknet::storage_access;
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
@@ -68,10 +94,8 @@ mod Grails {
         isApprovedForAll: LegacyMap<(ContractAddress, ContractAddress), bool>,
         minted: u256,
         name: felt252,
-        owned: LegacyMap<(ContractAddress, usize), u256>,
-        ownedIndex: LegacyMap<u256, usize>,
-        ownedLength: LegacyMap<ContractAddress, usize>,
         ownerOf: LegacyMap<u256, ContractAddress>,
+        storedERC721Ids: List<u256>,
         symbol: felt252,
         totalSupply: u256,
         whitelist: LegacyMap<ContractAddress, bool>,
@@ -84,24 +108,15 @@ mod Grails {
     #[event]
     #[derive(Drop, starknet::Event)]
     enum Event {
-        Approval: Approval,
         ApprovalForAll: ApprovalForAll,
+        ERC20Approval: ERC20Approval,
         ERC20Transfer: ERC20Transfer,
         ERC721Approval: ERC721Approval,
-        Transfer: Transfer,
+        ERC721Transfer: ERC721Transfer,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
         UpgradeableEvent: UpgradeableComponent::Event
-    }
-
-    #[derive(Drop, starknet::Event)]
-    struct Approval {
-        #[key]
-        owner: ContractAddress,
-        #[key]
-        spender: ContractAddress,
-        amount: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -111,6 +126,15 @@ mod Grails {
         #[key]
         operator: ContractAddress,
         approved: bool,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct ERC20Approval {
+        #[key]
+        owner: ContractAddress,
+        #[key]
+        spender: ContractAddress,
+        amount: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -132,7 +156,7 @@ mod Grails {
     }
 
     #[derive(Drop, starknet::Event)]
-    struct Transfer {
+    struct ERC721Transfer {
         #[key]
         from: ContractAddress,
         #[key]
@@ -142,9 +166,11 @@ mod Grails {
 
     mod Errors {
         const ALREADY_EXISTS: felt252 = 'Already exists';
-        const INVALID_ACCOUNT: felt252 = 'Invalid account';
+        const INVALID_OPERATOR: felt252 = 'Invalid operator';
         const INVALID_RECIPIENT: felt252 = 'Invalid recipient';
         const INVALID_SENDER: felt252 = 'Invalid sender';
+        const NOT_FOUND: felt252 = 'Not found';
+        const SAFE_TRANSFER_FAILED: felt252 = 'Safe transfer failed';
         const UNSAFE_RECIPIENT: felt252 = 'Unsafe recipient';
         const UNAUTHORIZED: felt252 = 'Unauthorized caller';
     }
@@ -157,12 +183,11 @@ mod Grails {
         totalNativeSupply: u256,
         owner: ContractAddress
     ) {
-        self.name.write(name);
         self.ownable.initializer(owner);
+        self.name.write(name);
         self.symbol.write(symbol);
-        let totalSupply = totalNativeSupply * InternalImpl::_getUnit();
-        self.totalSupply.write(totalSupply);
-        self.balances.write(owner, totalSupply);
+        self.whitelist.write(owner, true);
+        InternalImpl::_mintERC20(ref self, owner, totalNativeSupply * self.units(), false);
     }
 
     #[abi(embed_v0)]
@@ -184,28 +209,30 @@ mod Grails {
         fn approve(ref self: ContractState, spender: ContractAddress, amountOrId: u256) -> bool {
             let caller = get_caller_address();
             if (amountOrId <= self.minted.read() && amountOrId > 0) {
-                let owner = self.ownerOf.read(amountOrId);
+                let id = amountOrId;
+                let owner = self.ownerOf.read(id);
                 assert(
-                    caller == owner && self.isApprovedForAll.read((owner, caller)),
+                    caller == owner || self.isApprovedForAll.read((owner, caller)),
                     Errors::UNAUTHORIZED
                 );
-                self.getApproved.write(amountOrId, spender);
-                self.emit(Approval { owner, spender, amount: amountOrId });
+                self.getApproved.write(id, spender);
+                self.emit(ERC721Approval { owner, spender, id });
             } else {
+                let amount = amountOrId;
                 self.allowance.write((caller, spender), amountOrId);
-                self.emit(Approval { owner: caller, spender, amount: amountOrId });
+                self.emit(ERC20Approval { owner: caller, spender, amount });
             }
 
             true
         }
 
         fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
-            assert(!account.is_zero(), Errors::INVALID_ACCOUNT);
+            assert(!account.is_zero(), Errors::NOT_FOUND);
             self.balances.read(account)
         }
 
         fn balanceOf(self: @ContractState, account: ContractAddress) -> u256 {
-            assert(!account.is_zero(), Errors::INVALID_ACCOUNT);
+            assert(!account.is_zero(), Errors::NOT_FOUND);
             self.balances.read(account)
         }
 
@@ -217,18 +244,34 @@ mod Grails {
             18
         }
 
-        fn getApproved(self: @ContractState, amount: u256) -> ContractAddress {
-            self.getApproved.read(amount)
+        fn erc20BalanceOf(self: @ContractState, account: ContractAddress) -> u256 {
+            self.balanceOf(account)
+        }
+
+        fn erc20TotalSupply(self: @ContractState) -> u256 {
+            self.totalSupply.read()
+        }
+
+        fn erc721BalanceOf(self: @ContractState, account: ContractAddress) -> u256 {
+            0 // TODO
+        }
+
+        fn erc721TokensBankedInQueue(self: @ContractState) -> u256 {
+            self.storedERC721Ids.read().len().into()
+        }
+
+        fn erc721TotalSupply(self: @ContractState) -> u256 {
+            self.minted.read()
+        }
+
+        fn getApproved(self: @ContractState, tokenId: u256) -> ContractAddress {
+            self.getApproved.read(tokenId)
         }
 
         fn isApprovedForAll(
-            self: @ContractState, owner: ContractAddress, spender: ContractAddress
+            self: @ContractState, owner: ContractAddress, operator: ContractAddress
         ) -> bool {
-            self.isApprovedForAll.read((owner, spender))
-        }
-
-        fn minted(self: @ContractState) -> u256 {
-            self.minted.read()
+            self.isApprovedForAll.read((owner, operator))
         }
 
         fn name(self: @ContractState) -> felt252 {
@@ -236,21 +279,46 @@ mod Grails {
         }
 
         fn owned(self: @ContractState, owner: ContractAddress) -> Array<u256> {
-            let length = self.ownedLength.read(owner);
-            let mut owned = ArrayTrait::<u256>::new();
-            let mut k = 0;
-            while k < length {
-                owned.append(self.owned.read((owner, k)));
-                k += 1;
-            };
-            owned
+            // TODO
+            array![]
         }
 
         fn ownerOf(self: @ContractState, id: u256) -> ContractAddress {
-            self.ownerOf.read(id)
+            let owner = self.ownerOf.read(id);
+            assert(id > 0 && id <= self.minted.read() && owner.is_non_zero(), Errors::NOT_FOUND);
+            owner
+        }
+
+        fn safe_transfer_from(
+            ref self: ContractState,
+            from: ContractAddress,
+            to: ContractAddress,
+            amount_or_id: u256,
+            data: Span<felt252>
+        ) {
+            self.transferFrom(from, to, amount_or_id);
+            assert(
+                InternalImpl::_check_on_erc721_received(from, to, amount_or_id, data),
+                Errors::SAFE_TRANSFER_FAILED
+            );
+        }
+
+        fn safeTransferFrom(
+            ref self: ContractState,
+            from: ContractAddress,
+            to: ContractAddress,
+            amountOrId: u256,
+            data: Span<felt252>
+        ) {
+            self.transferFrom(from, to, amountOrId);
+            assert(
+                InternalImpl::_check_on_erc721_received(from, to, amountOrId, data),
+                Errors::SAFE_TRANSFER_FAILED
+            );
         }
 
         fn setApprovalForAll(ref self: ContractState, operator: ContractAddress, approved: bool) {
+            assert(operator.is_non_zero(), Errors::INVALID_OPERATOR);
             let caller = get_caller_address();
             self.isApprovedForAll.write((caller, operator), approved);
             self.emit(ApprovalForAll { owner: caller, operator, approved });
@@ -275,7 +343,11 @@ mod Grails {
             self.symbol.read()
         }
 
-        fn tokenURI(self: @ContractState, id: u256) -> felt252 {
+        fn token_uri(self: @ContractState, token_id: u256) -> felt252 {
+            ''
+        }
+
+        fn tokenURI(self: @ContractState, tokenId: u256) -> felt252 {
             ''
         }
 
@@ -288,56 +360,50 @@ mod Grails {
         }
 
         fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) -> bool {
-            InternalImpl::_transfer(ref self, get_caller_address(), to, amount)
+            assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
+            InternalImpl::_transferERC20WithERC721(ref self, get_caller_address(), to, amount)
         }
 
         fn transfer_from(
-            ref self: ContractState, from: ContractAddress, to: ContractAddress, amountOrId: u256
-        ) {
-            self.transferFrom(from, to, amountOrId);
+            ref self: ContractState, from: ContractAddress, to: ContractAddress, amount_or_id: u256
+        ) -> bool {
+            self.transferFrom(from, to, amount_or_id)
         }
 
         fn transferFrom(
             ref self: ContractState, from: ContractAddress, to: ContractAddress, amountOrId: u256
-        ) {
+        ) -> bool {
+            assert(from.is_non_zero(), Errors::INVALID_SENDER);
+            assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
+
             let caller = get_caller_address();
             if (amountOrId <= self.minted.read()) {
-                assert(from == self.ownerOf.read(amountOrId), Errors::INVALID_SENDER);
-                assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
+                let id = amountOrId;
+                assert(from == self.ownerOf.read(id), Errors::UNAUTHORIZED);
                 assert(
                     caller == from
-                        && self.isApprovedForAll.read((from, caller))
-                        && caller == self.getApproved.read(amountOrId),
+                        || self.isApprovedForAll.read((from, caller))
+                        || caller == self.getApproved.read(id),
                     Errors::UNAUTHORIZED
                 );
-                let unit = InternalImpl::_getUnit();
-                self.balances.write(from, self.balances.read(from) - unit);
-                self.balances.write(to, self.balances.read(to) + unit);
-                self.getApproved.write(amountOrId, contract_address_const::<0>());
 
-                // update from owned items
-                let index = self.ownedIndex.read(amountOrId);
-                let length = self.ownedLength.read(from);
-                self.owned.write((from, index), self.owned.read((from, length - 1)));
-                self.ownedLength.write(from, length - 1);
-
-                // update to owned items
-                let length = self.ownedLength.read(to);
-                self.owned.write((to, length), amountOrId);
-                self.ownedIndex.write(amountOrId, length);
-                self.ownedLength.write(to, length + 1);
-                self.ownerOf.write(amountOrId, to);
-
-                self.emit(Transfer { from, to, id: amountOrId });
-                self.emit(ERC20Transfer { from, to, amount: InternalImpl::_getUnit() });
+                InternalImpl::_transferERC20(ref self, from, to, self.units());
+                InternalImpl::_transferERC721(ref self, from, to, id);
             } else {
+                let amount = amountOrId;
                 let allowed = self.allowance.read((from, caller));
                 if (allowed != BoundedU256::max()) {
-                    self.allowance.write((from, caller), allowed - amountOrId);
+                    self.allowance.write((from, caller), allowed - amount);
                 }
 
-                InternalImpl::_transfer(ref self, from, to, amountOrId);
+                InternalImpl::_transferERC20WithERC721(ref self, from, to, amount);
             }
+
+            true
+        }
+
+        fn units(self: @ContractState) -> u256 {
+            1_000_000_000_000_000_000
         }
 
         fn whitelist(self: @ContractState, address: ContractAddress) -> bool {
@@ -347,71 +413,106 @@ mod Grails {
 
     #[generate_trait]
     impl InternalImpl of InternalTrait {
-        fn _getUnit() -> u256 {
-            1_000_000_000_000_000_000
+        fn _check_on_erc721_received(
+            from: ContractAddress, to: ContractAddress, token_id: u256, data: Span<felt252>
+        ) -> bool {
+            if (DualCaseSRC5 { contract_address: to }
+                .supports_interface(interface::IERC721_RECEIVER_ID)) {
+                DualCaseERC721Receiver { contract_address: to }
+                    .on_erc721_received(
+                        get_caller_address(), from, token_id, data
+                    ) == interface::IERC721_RECEIVER_ID
+            } else {
+                DualCaseSRC5 { contract_address: to }
+                    .supports_interface(account::interface::ISRC6_ID)
+            }
         }
 
-        fn _transfer(
+        fn _mintERC20(
+            ref self: ContractState,
+            to: ContractAddress,
+            amount: u256,
+            mintCorrespondingERC721s: bool
+        ) {
+            assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
+            InternalImpl::_transferERC20(ref self, contract_address_const::<0>(), to, amount);
+
+            if (mintCorrespondingERC721s) {
+                let nftsToRetrieveOrMint = amount / self.units();
+                let mut k = 0;
+                while (k < nftsToRetrieveOrMint) {
+                    InternalImpl::_retrieveOrMintERC721(ref self, to);
+                    k += 1;
+                }
+            }
+        }
+
+        fn _retrieveOrMintERC721(ref self: ContractState, to: ContractAddress) {
+            assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
+            let mut id = 0;
+
+            //if (!DoubleEndedQueue.empty(_storedERC721Ids)) {
+            // If there are any tokens in the bank, use those first.
+            // Pop off the end of the queue (FIFO).
+            //id = _storedERC721Ids.popBack();
+            //} else {
+            // Otherwise, mint a new token, should not be able to go over the total fractional supply.
+            //_minted++;
+            //id = _minted;
+            //}
+
+            let erc721Owner = self.ownerOf.read(id);
+            assert(erc721Owner.is_non_zero(), Errors::ALREADY_EXISTS);
+            InternalImpl::_transferERC721(ref self, erc721Owner, to, id);
+        }
+
+        fn _transferERC20(
+            ref self: ContractState, from: ContractAddress, to: ContractAddress, amount: u256
+        ) {
+            if (from.is_zero()) {
+                self.totalSupply.write(self.totalSupply.read() + amount);
+            } else {
+                self.balances.write(from, self.balances.read(from) - amount);
+            }
+
+            self.balances.write(to, self.balances.read(to) + amount);
+            self.emit(ERC20Transfer { from, to, amount });
+        }
+
+        fn _transferERC721(
+            ref self: ContractState, from: ContractAddress, to: ContractAddress, id: u256
+        ) {
+            if (from.is_non_zero()) {
+                self.getApproved.write(id, contract_address_const::<0>());
+                let updatedId = 0;
+                // uint256 updatedId = _owned[from_][_owned[from_].length - 1];
+                if (updatedId != id) { // TODO FINISH 
+                }
+            }
+
+            self.emit(ERC721Transfer { from, to, id });
+        }
+
+        fn _transferERC20WithERC721(
             ref self: ContractState, from: ContractAddress, to: ContractAddress, amount: u256
         ) -> bool {
-            let unit = InternalImpl::_getUnit();
+            let units = self.units();
             let balanceBeforeSender = self.balances.read(from);
             let balanceBeforeReceiver = self.balances.read(to);
             self.balances.write(from, balanceBeforeSender - amount);
             self.balances.write(to, balanceBeforeReceiver + amount);
 
-            // Skip burn for certain addresses to save gas
-            if (!self.whitelist.read(from)) {
-                assert(from.is_non_zero(), Errors::INVALID_SENDER);
-
-                let tokensToBurn: usize = ((balanceBeforeSender / unit)
-                    - (self.balanceOf(from) / unit))
-                    .try_into()
-                    .unwrap();
-                let length = self.ownedLength.read(from);
-                let mut k = 0;
-                while k < tokensToBurn {
-                    let id: u256 = self.owned.read((from, length - k - 1));
-                    self.getApproved.write(id, contract_address_const::<0>());
-                    self.ownerOf.write(id, contract_address_const::<0>());
-                    self.ownedIndex.write(id, 0);
-
-                    self.emit(Transfer { from, to: contract_address_const::<0>(), id });
-                    k += 1;
-                };
-
-                self.ownedLength.write(from, length - tokensToBurn);
-            }
-
-            // Skip minting for certain addresses to save gas
-            if (!self.whitelist.read(to)) {
-                assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
-
-                let tokensToMint: usize = ((self.balanceOf(to) / unit)
-                    - (balanceBeforeReceiver / unit))
-                    .try_into()
-                    .unwrap();
-                let length = self.ownedLength.read(to);
-                let mut minted = self.minted.read();
-                let mut k = 0;
-                while k < tokensToMint {
-                    minted += 1;
-                    let id = minted;
-                    assert(self.ownerOf(id).is_zero(), Errors::ALREADY_EXISTS);
-                    self.owned.write((from, length + k), id);
-                    self.ownedIndex.write(id, length + k);
-                    self.ownerOf.write(id, to);
-
-                    self.emit(Transfer { from: contract_address_const::<0>(), to, id });
-                    k += 1;
-                };
-
-                self.minted.write(minted);
-                self.ownedLength.write(to, length + tokensToMint);
-            }
+            // TODO
 
             self.emit(ERC20Transfer { from, to, amount });
             true
+        }
+
+        fn _withdrawAndStoreERC721(ref self: ContractState, from: ContractAddress) {
+            assert(from.is_non_zero(), Errors::INVALID_SENDER);
+        // uint256 id = _owned[from_][_owned[from_].length - 1];
+        // InternalImpl::_transferERC721(ref self, from, contract_address_const::<0>(), id);
+        // _storedERC721Ids.pushFront(id);
         }
     }
 }

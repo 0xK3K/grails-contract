@@ -27,12 +27,34 @@ fn constructor() {
     let dispatcher = deploy();
     assert(dispatcher.name() == 'Grails ERC404', 'invalid name');
     assert(dispatcher.symbol() == 'GRAILS', 'invalid symbol');
+    assert(
+        dispatcher.erc20TotalSupply() == 10_000_000000000000000000, 'invalid erc20 total supply'
+    );
+    assert(dispatcher.erc721TotalSupply() == 0, 'invalid erc721 total supply');
     assert(dispatcher.totalSupply() == 10_000_000000000000000000, 'invalid total supply');
-    assert(dispatcher.balanceOf(get_contract_address()) == 10_000_000000000000000000, 'invalid owner balance');
+    assert(
+        dispatcher.balanceOf(get_contract_address()) == 10_000_000000000000000000,
+        'invalid owner balance'
+    );
 }
 
 #[test]
-fn transfer() {
+fn erc20Transfer() {
+    let dispatcher = deploy();
+    dispatcher.setWhitelist(get_contract_address(), true);
+    dispatcher.transfer(alice(), 1_000000000000000000);
+    assert(dispatcher.balanceOf(alice()) == 1_000000000000000000, 'invalid init balance');
+    dispatcher.transfer(alice(), 100_000000000000000000);
+    assert(dispatcher.balanceOf(alice()) == 101_000000000000000000, 'invalid total balance');
+    start_prank(CheatTarget::All, alice());
+    dispatcher.transfer(bob(), 70_000000000000000000);
+    stop_prank(CheatTarget::All);
+    assert(dispatcher.balanceOf(alice()) == 31_000000000000000000, 'invalid alice balance');
+    assert(dispatcher.balanceOf(bob()) == 70_000000000000000000, 'invalid bob balance');
+}
+
+#[test]
+fn erc721Transfer() {
     let dispatcher = deploy();
     dispatcher.setWhitelist(get_contract_address(), true);
     dispatcher.transfer(alice(), 1_000000000000000000);
@@ -42,17 +64,4 @@ fn transfer() {
     assert(dispatcher.balanceOf(alice()) == 101_000000000000000000, 'invalid balance');
     assert(dispatcher.owned(alice()).len() == 101, 'invalid owned length');
     assert(dispatcher.ownerOf(0x64) == alice(), 'invalid id');
-}
-
-#[test]
-fn transferMulti() {
-    let dispatcher = deploy();
-    dispatcher.setWhitelist(get_contract_address(), true);
-    dispatcher.transfer(alice(), 100_000000000000000000);
-    start_prank(CheatTarget::All, alice());
-    dispatcher.transfer(bob(), 70_000000000000000000);
-    stop_prank(CheatTarget::All);
-    assert(dispatcher.owned(alice()).len() == 30, 'invalid alice owned length');
-    assert(dispatcher.owned(bob()).len() == 70, 'invalid bob owned length');
-    assert(dispatcher.minted() == 170, 'invalid minted');
 }

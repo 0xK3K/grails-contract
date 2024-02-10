@@ -2,7 +2,7 @@ import fs from 'fs'
 import { exec } from 'child_process'
 
 export const getClassHashFromFile = async (file) => {
-    const path = `/Users/k3k/Projects/stargaze/contracts/src/${file}`
+    const path = `/Users/k3k/Projects/grails/contracts/src/${file}`
     const data = fs.readFileSync(path, 'utf-8')
     const firstLine = data.split('\n')[0]
     return firstLine.match(/0x([a-fA-F0-9]+)/)[0]
@@ -38,21 +38,6 @@ export const deployContract = ({ classHash, calldata, env }) => {
         })
     })
 }
-
-
-export const setStrategyManager = ({ contractAddress, env, manager }) => {
-    return new Promise(function (resolve, reject) {
-        exec(`sncast --profile ${env} invoke --contract-address ${contractAddress} --function setManager --calldata ${manager}`, (_, stdout, stderr) => {
-            if (stderr) {
-                reject(stderr)
-            } else {
-                const match = stdout.match(/command: invoke\ntransaction_hash: (0x[0-9a-fA-F]+)/)
-                resolve(match[1])
-            }
-        })
-    })
-}
-
 
 export const upgradeContract = ({ classHash, contractAddress, env }) => {
     return new Promise(function (resolve, reject) {
