@@ -2,8 +2,3 @@
 account = "deployer"
 accounts-file = "/Users/k3k/.starknet_accounts/starknet_open_zeppelin_accounts.json"
 url = "https://starknet-testnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
-
-[snforge.fork]
-name = "goerli"
-url = "https://starknet-testnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
-block_id.tag = "Latest"

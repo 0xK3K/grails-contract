@@ -69,6 +69,13 @@ pako@^2.0.4:
   resolved "https://registry.yarnpkg.com/pako/-/pako-2.1.0.tgz#266cc37f98c7d883545d11335c00fbd4062c9a86"
   integrity sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==
 
+starknet-merkle-tree@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/starknet-merkle-tree/-/starknet-merkle-tree-1.0.2.tgz#5738a1d439d278fa651a35012e798fc0469cbe70"
+  integrity sha512-1c7Td6tdZeqr/9NJJZVbBMvR+aF71QErvjgEcZZU2Zwu2Qg0o+UBeZrPRhlsYKlVTHzRODFhlKOQdRe+RBLpfA==
+  dependencies:
+    starknet "^5.24.3"
+
 starknet@^5.24.3:
   version "5.24.3"
   resolved "https://registry.yarnpkg.com/starknet/-/starknet-5.24.3.tgz#1d8a84047783ea122a6cf4f2dac59bfa6d628154"

@@ -1,10 +1,12 @@
-// class_hash: 0x636f7f16114ce2503f36076c85a8e3399f34cf3cb9f162023c1f64472a0401b
+// class_hash: 
 
 #[starknet::interface]
 trait IMint<TState> {
     fn allocation(self: @TState, owner: starknet::ContractAddress) -> u256;
     fn collect(ref self: TState);
-    fn mint(ref self: TState, amount: u256) -> bool;
+    fn mint(ref self: TState) -> bool;
+    fn seedAllocations(ref self: TState);
+    fn startTime(self: @TState) -> u64;
     fn unitPrice(self: @TState) -> u256;
 }
 
@@ -16,7 +18,9 @@ mod Mint {
         token::erc20::interface::{ERC20ABIDispatcher, ERC20ABIDispatcherTrait},
         upgrades::{UpgradeableComponent, interface::IUpgradeable}
     };
-    use starknet::{ClassHash, ContractAddress, get_caller_address, get_contract_address};
+    use starknet::{
+        ClassHash, ContractAddress, get_block_timestamp, get_caller_address, get_contract_address
+    };
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
@@ -29,7 +33,10 @@ mod Mint {
     #[storage]
     struct Storage {
         allocations: LegacyMap<ContractAddress, u256>,
+        eth: ContractAddress,
         grails: ContractAddress,
+        lastMint: LegacyMap<ContractAddress, u64>,
+        startTime: u64,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -50,25 +57,17 @@ mod Mint {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, grails: ContractAddress, owner: ContractAddress) {
+    fn constructor(
+        ref self: ContractState,
+        eth: ContractAddress,
+        grails: ContractAddress,
+        startTime: u64,
+        owner: ContractAddress
+    ) {
         self.ownable.initializer(owner);
+        self.eth.write(eth);
         self.grails.write(grails);
-        self
-            .allocations
-            .write(
-                0x02851967aa0652dcef0bcc441a5b77d182107a2a7e48a59a31b81626bc4b071a
-                    .try_into()
-                    .unwrap(),
-                1000
-            );
-        self
-            .allocations
-            .write(
-                0x06e30ddd7b02df2f2ef6725329f7d344caecb50205d178d511427e0f6cd79374
-                    .try_into()
-                    .unwrap(),
-                1000
-            );
+        self.startTime.write(startTime);
     }
 
     #[abi(embed_v0)]
@@ -87,35 +86,54 @@ mod Mint {
 
         fn collect(ref self: ContractState) {
             self.ownable.assert_only_owner();
-            let dispatcher = ERC20ABIDispatcher {
-                contract_address: 0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7
-                    .try_into()
-                    .unwrap()
-            };
+            let dispatcher = ERC20ABIDispatcher { contract_address: self.eth.read() };
             let balance = dispatcher.balanceOf(get_contract_address());
             dispatcher.transfer(self.ownable.owner(), balance);
         }
 
-        fn mint(ref self: ContractState, amount: u256) -> bool {
+        fn mint(ref self: ContractState) -> bool {
             let caller = get_caller_address();
-            let allocation = self.allocations.read(caller);
-            assert(amount <= allocation, Errors::ALLOCATION_CLAIMED);
+            let timestamp = get_block_timestamp();
 
-            let cost = self.unitPrice() * amount;
-            let eth = ERC20ABIDispatcher {
-                contract_address: 0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7
-                    .try_into()
-                    .unwrap()
-            };
-            eth.transferFrom(caller, get_contract_address(), cost);
-            self.allocations.write(caller, allocation - amount);
+            if (timestamp >= self.startTime.read()) {
+                assert(timestamp >= self.lastMint.read(caller) + 60, 'Mint delay');
+                self.lastMint.write(caller, timestamp);
+                let eth = ERC20ABIDispatcher { contract_address: self.eth.read() };
+                eth.transferFrom(caller, get_contract_address(), self.unitPrice());
+                let grails = IGrailsDispatcher { contract_address: self.grails.read() };
+                grails.transfer(caller, 1_000_000_000_000_000_000)
+            } else {
+                let allocation = self.allocations.read(caller);
+                assert(allocation != 0, Errors::ALLOCATION_CLAIMED);
+                let eth = ERC20ABIDispatcher { contract_address: self.eth.read() };
+                eth.transferFrom(caller, get_contract_address(), self.unitPrice());
+                self.allocations.write(caller, allocation - 1);
+                let grails = IGrailsDispatcher { contract_address: self.grails.read() };
+                grails.transfer(caller, 1_000_000_000_000_000_000)
+            }
+        }
 
-            let grails = IGrailsDispatcher { contract_address: self.grails.read() };
-            grails.transfer(caller, amount * 1_000_000_000_000_000_000)
+        fn seedAllocations(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            let addresses = array![
+                0x50f076546ee8972198e7bc9786a7deddf1f3ac2e2bf09d2396a8ae0289164cf,
+                0x01fb62ac54f9fa99e1417f83bcb88485556427397f717ed4e7233bc99be31bff
+            ];
+            let length = addresses.len();
+            let mut k = 0;
+            while k < length {
+                let address = *addresses.at(k);
+                self.allocations.write(address.try_into().unwrap(), 1);
+                k += 1;
+            }
+        }
+
+        fn startTime(self: @ContractState) -> u64 {
+            self.startTime.read()
         }
 
         fn unitPrice(self: @ContractState) -> u256 {
-            2_0000000000000000 // 0.02 ether
+            10_000_000_000_000_000 // 0.01 ether
         }
     }
 }

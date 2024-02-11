@@ -1,4 +1,4 @@
-// class_hash: 0x6ef35aa5e81aa6ab87d805b0dae7a528543abe848318e22511d9d2329928bed
+// class_hash: 
 
 #[starknet::interface]
 trait IGrails<TState> {
