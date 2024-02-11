@@ -3,7 +3,7 @@ name = "grails"
 version = "0.1.0"
 
 [dependencies]
-alexandria_math = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
+alexandria_storage = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
 openzeppelin = { git = "https://github.com/OpenZeppelin/cairo-contracts.git" }
 snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry" }
 starknet = ">=2.5.3"

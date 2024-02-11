@@ -66,14 +66,15 @@ trait IGrails<TState> {
 mod Grails {
     use alexandria_storage::list::{List, ListTrait};
     use integer::BoundedU256;
-    use openzeppelin::{
-        account, access::ownable::OwnableComponent,
-        introspection::dual_src5::{DualCaseSRC5, DualCaseSRC5Trait}, token::erc20,
-        token::erc721::{
-            dual721_receiver::{DualCaseERC721Receiver, DualCaseERC721ReceiverTrait}, interface
-        },
-        upgrades::{UpgradeableComponent, interface::IUpgradeable}
+    use openzeppelin::account;
+    use openzeppelin::access::ownable::OwnableComponent;
+    use openzeppelin::introspection::dual_src5::{DualCaseSRC5, DualCaseSRC5Trait};
+    use openzeppelin::token::erc20;
+    use openzeppelin::token::erc721::dual721_receiver::{
+        DualCaseERC721Receiver, DualCaseERC721ReceiverTrait
     };
+    use openzeppelin::token::erc721::interface;
+    use openzeppelin::upgrades::{UpgradeableComponent, interface::IUpgradeable};
     use starknet::{ClassHash, ContractAddress, contract_address_const, get_caller_address};
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -94,6 +95,9 @@ mod Grails {
         isApprovedForAll: LegacyMap<(ContractAddress, ContractAddress), bool>,
         minted: u256,
         name: felt252,
+        owned: LegacyMap<(ContractAddress, u32), u256>,
+        ownedIndex: LegacyMap<u256, u32>,
+        ownedLength: LegacyMap<ContractAddress, u32>,
         ownerOf: LegacyMap<u256, ContractAddress>,
         storedERC721Ids: List<u256>,
         symbol: felt252,
@@ -188,6 +192,8 @@ mod Grails {
         self.symbol.write(symbol);
         self.whitelist.write(owner, true);
         InternalImpl::_mintERC20(ref self, owner, totalNativeSupply * self.units(), false);
+        let storedERC721IdsAddress = self.storedERC721Ids.address();
+        self.storedERC721Ids.write(ListTrait::<u256>::new(0, storedERC721IdsAddress));
     }
 
     #[abi(embed_v0)]
@@ -253,7 +259,7 @@ mod Grails {
         }
 
         fn erc721BalanceOf(self: @ContractState, account: ContractAddress) -> u256 {
-            0 // TODO
+            self.ownedLength.read(account).into()
         }
 
         fn erc721TokensBankedInQueue(self: @ContractState) -> u256 {
@@ -279,8 +285,14 @@ mod Grails {
         }
 
         fn owned(self: @ContractState, owner: ContractAddress) -> Array<u256> {
-            // TODO
-            array![]
+            let mut owned = ArrayTrait::<u256>::new();
+            let mut k = 0;
+            let length = self.ownedLength.read(owner).into();
+            while k < length {
+                owned.append(self.owned.read((owner, k)));
+                k += 1;
+            };
+            owned
         }
 
         fn ownerOf(self: @ContractState, id: u256) -> ContractAddress {
@@ -440,7 +452,7 @@ mod Grails {
             if (mintCorrespondingERC721s) {
                 let nftsToRetrieveOrMint = amount / self.units();
                 let mut k = 0;
-                while (k < nftsToRetrieveOrMint) {
+                while k < nftsToRetrieveOrMint {
                     InternalImpl::_retrieveOrMintERC721(ref self, to);
                     k += 1;
                 }
@@ -451,18 +463,17 @@ mod Grails {
             assert(to.is_non_zero(), Errors::INVALID_RECIPIENT);
             let mut id = 0;
 
-            //if (!DoubleEndedQueue.empty(_storedERC721Ids)) {
-            // If there are any tokens in the bank, use those first.
-            // Pop off the end of the queue (FIFO).
-            //id = _storedERC721Ids.popBack();
-            //} else {
-            // Otherwise, mint a new token, should not be able to go over the total fractional supply.
-            //_minted++;
-            //id = _minted;
-            //}
+            if (self.storedERC721Ids.read().is_empty()) {
+                let minted = self.minted.read() + 1;
+                id = minted;
+                self.minted.write(minted);
+            } else {
+                let mut list = self.storedERC721Ids.read();
+                id = list.pop_front().unwrap().unwrap();
+            }
 
             let erc721Owner = self.ownerOf.read(id);
-            assert(erc721Owner.is_non_zero(), Errors::ALREADY_EXISTS);
+            assert(erc721Owner.is_zero(), Errors::ALREADY_EXISTS);
             InternalImpl::_transferERC721(ref self, erc721Owner, to, id);
         }
 
@@ -484,10 +495,25 @@ mod Grails {
         ) {
             if (from.is_non_zero()) {
                 self.getApproved.write(id, contract_address_const::<0>());
-                let updatedId = 0;
-                // uint256 updatedId = _owned[from_][_owned[from_].length - 1];
-                if (updatedId != id) { // TODO FINISH 
+                let length = self.ownedLength.read(from) - 1;
+                let updatedId = self.owned.read((from, length));
+                if (updatedId != id) {
+                    let updatedIndex = self.ownedIndex.read(id);
+                    self.owned.write((from, updatedIndex), updatedId);
+                    self.ownedIndex.write(updatedId, updatedIndex);
                 }
+                self.ownedLength.write(from, length);
+            }
+
+            if (to.is_non_zero()) {
+                self.ownerOf.write(id, to);
+                let length = self.ownedLength.read(to);
+                self.owned.write((to, length), id);
+                self.ownedIndex.write(id, length);
+                self.ownedLength.write(to, length + 1);
+                self.ownerOf.write(id, to);
+            } else {
+                self.ownerOf.write(id, contract_address_const::<0>());
             }
 
             self.emit(ERC721Transfer { from, to, id });
@@ -496,23 +522,64 @@ mod Grails {
         fn _transferERC20WithERC721(
             ref self: ContractState, from: ContractAddress, to: ContractAddress, amount: u256
         ) -> bool {
+            let erc20BalanceOfSenderBefore = self.erc20BalanceOf(from);
+            let erc20BalanceOfReceiverBefore = self.erc20BalanceOf(to);
+            InternalImpl::_transferERC20(ref self, from, to, amount);
+
             let units = self.units();
-            let balanceBeforeSender = self.balances.read(from);
-            let balanceBeforeReceiver = self.balances.read(to);
-            self.balances.write(from, balanceBeforeSender - amount);
-            self.balances.write(to, balanceBeforeReceiver + amount);
 
-            // TODO
+            let isFromWhitelisted = self.whitelist.read(from);
+            let isToWhitelisted = self.whitelist.read(to);
+            if (isFromWhitelisted && !isToWhitelisted) {
+                let tokensToRetrieveOrMint = (self.balances.read(to) / units)
+                    - (erc20BalanceOfReceiverBefore / units);
+                let mut k = 0;
+                while k < tokensToRetrieveOrMint {
+                    InternalImpl::_retrieveOrMintERC721(ref self, to);
+                    k += 1;
+                }
+            } else if (!isFromWhitelisted && isToWhitelisted) {
+                let tokensToWithdrawAndStore = (erc20BalanceOfSenderBefore / units)
+                    - (self.balances.read(from) / units);
+                let mut k = 0;
+                while k < tokensToWithdrawAndStore {
+                    InternalImpl::_withdrawAndStoreERC721(ref self, from);
+                    k += 1;
+                }
+            } else {
+                let nftsToTransfer = amount / units;
+                let mut k = 0;
+                while k < nftsToTransfer {
+                    let id = self.owned.read((from, self.ownedLength.read(from) - 1));
+                    InternalImpl::_transferERC721(ref self, from, to, id);
+                    k += 1;
+                };
 
-            self.emit(ERC20Transfer { from, to, amount });
+                let fractionalAmount = amount % units;
+                if ((erc20BalanceOfSenderBefore - fractionalAmount)
+                    / units < erc20BalanceOfSenderBefore
+                    / units) {
+                    InternalImpl::_withdrawAndStoreERC721(ref self, from);
+                }
+
+                if ((erc20BalanceOfReceiverBefore + fractionalAmount)
+                    / units > erc20BalanceOfReceiverBefore
+                    / units) {
+                    InternalImpl::_retrieveOrMintERC721(ref self, to);
+                }
+            }
+
             true
         }
 
         fn _withdrawAndStoreERC721(ref self: ContractState, from: ContractAddress) {
             assert(from.is_non_zero(), Errors::INVALID_SENDER);
-        // uint256 id = _owned[from_][_owned[from_].length - 1];
-        // InternalImpl::_transferERC721(ref self, from, contract_address_const::<0>(), id);
-        // _storedERC721Ids.pushFront(id);
+
+            let id = self.owned.read((from, self.ownedLength.read(from) - 1));
+            InternalImpl::_transferERC721(ref self, from, contract_address_const::<0>(), id);
+
+            let mut list = self.storedERC721Ids.read();
+            list.append(id).expect('syscallresult error');
         }
     }
 }

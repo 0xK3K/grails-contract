@@ -115,7 +115,7 @@ mod Mint {
         }
 
         fn unitPrice(self: @ContractState) -> u256 {
-            4_0000000000000000 // 0.04 ether
+            2_0000000000000000 // 0.02 ether
         }
     }
 }
