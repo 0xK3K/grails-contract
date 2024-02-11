@@ -1,4 +1,4 @@
-// class_hash: 
+// class_hash: 0x380faafb5562b1b746c54ebef1652473e8a62844fa70ef9c8a4f218580173be
 
 #[starknet::interface]
 trait IMint<TState> {
@@ -35,7 +35,6 @@ mod Mint {
         allocations: LegacyMap<ContractAddress, u256>,
         eth: ContractAddress,
         grails: ContractAddress,
-        lastMint: LegacyMap<ContractAddress, u64>,
         startTime: u64,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
@@ -95,19 +94,17 @@ mod Mint {
             let caller = get_caller_address();
             let timestamp = get_block_timestamp();
 
-            if (timestamp >= self.startTime.read()) {
-                assert(timestamp >= self.lastMint.read(caller) + 60, 'Mint delay');
-                self.lastMint.write(caller, timestamp);
+            let allocation = self.allocations.read(caller);
+            if (allocation > 0) {
+                self.allocations.write(caller, allocation - 1);
                 let eth = ERC20ABIDispatcher { contract_address: self.eth.read() };
                 eth.transferFrom(caller, get_contract_address(), self.unitPrice());
                 let grails = IGrailsDispatcher { contract_address: self.grails.read() };
                 grails.transfer(caller, 1_000_000_000_000_000_000)
             } else {
-                let allocation = self.allocations.read(caller);
-                assert(allocation != 0, Errors::ALLOCATION_CLAIMED);
+                assert(timestamp >= self.startTime.read(), 'Mint not started');
                 let eth = ERC20ABIDispatcher { contract_address: self.eth.read() };
                 eth.transferFrom(caller, get_contract_address(), self.unitPrice());
-                self.allocations.write(caller, allocation - 1);
                 let grails = IGrailsDispatcher { contract_address: self.grails.read() };
                 grails.transfer(caller, 1_000_000_000_000_000_000)
             }
@@ -116,14 +113,14 @@ mod Mint {
         fn seedAllocations(ref self: ContractState) {
             self.ownable.assert_only_owner();
             let addresses = array![
-                0x50f076546ee8972198e7bc9786a7deddf1f3ac2e2bf09d2396a8ae0289164cf,
-                0x01fb62ac54f9fa99e1417f83bcb88485556427397f717ed4e7233bc99be31bff
+                0x2851967aa0652dcef0bcc441a5b77d182107a2a7e48a59a31b81626bc4b071a,
+                0x06e30ddd7b02df2f2ef6725329f7d344caecb50205d178d511427e0f6cd79374
             ];
             let length = addresses.len();
             let mut k = 0;
             while k < length {
                 let address = *addresses.at(k);
-                self.allocations.write(address.try_into().unwrap(), 1);
+                self.allocations.write(address.try_into().unwrap(), 100);
                 k += 1;
             }
         }

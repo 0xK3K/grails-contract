@@ -1,4 +1,4 @@
-// class_hash: 
+// class_hash: 0x6a6aea31854bc16273380e81acb0e6b64d634669e7a7eddc9e52ff147464dd9
 
 #[starknet::interface]
 trait IGrails<TState> {
@@ -546,7 +546,7 @@ mod Grails {
                     InternalImpl::_withdrawAndStoreERC721(ref self, from);
                     k += 1;
                 }
-            } else {
+            } else if (!isFromWhitelisted && !isToWhitelisted) {
                 let nftsToTransfer = amount / units;
                 let mut k = 0;
                 while k < nftsToTransfer {

@@ -1,9 +1,11 @@
 use core::traits::TryInto;
-use snforge_std::{declare, start_prank, stop_prank, CheatTarget, ContractClassTrait};
+use snforge_std::{declare, start_prank, stop_prank, start_warp, CheatTarget, ContractClassTrait};
 
 use core::debug::PrintTrait;
 use grails::grails::{IGrailsDispatcher, IGrailsDispatcherTrait};
 use grails::mint::{IMintDispatcher, IMintDispatcherTrait};
+use integer::BoundedU256;
+use openzeppelin::token::erc20::{ERC20ABIDispatcher, ERC20ABIDispatcherTrait};
 use starknet::{ContractAddress, get_contract_address, get_block_timestamp};
 
 fn alice() -> ContractAddress {
@@ -18,27 +20,26 @@ fn eth() -> ContractAddress {
     0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7.try_into().unwrap()
 }
 
+fn ethDispatcher() -> ERC20ABIDispatcher {
+    ERC20ABIDispatcher { contract_address: eth() }
+}
+
 fn deploy() -> (IGrailsDispatcher, IMintDispatcher) {
-    let contract = declare('Grails');
-    let mut params = ArrayTrait::<felt252>::new();
-    params.append('Grails ERC404');
-    params.append('GRAILS');
-    10_000_u256.serialize(ref params);
-    get_contract_address().serialize(ref params);
-    let grails = contract.deploy(@params).unwrap();
+    let grails = IGrailsDispatcher {
+        contract_address: 0x42b03ae37c7a9fb79e21664d9372b632a683c878b020b72aa5af6bbebac2121
+            .try_into()
+            .unwrap()
+    };
 
     let contract = declare('Mint');
     let mut params = ArrayTrait::<felt252>::new();
     eth().serialize(ref params);
     grails.serialize(ref params);
-    1707696000_u64.serialize(ref params); // monday 12th
+    1707706800_u64.serialize(ref params); // monday 12th
     get_contract_address().serialize(ref params);
     let mint = contract.deploy(@params).unwrap();
 
-    (
-        IGrailsDispatcher { contract_address: grails },
-        IMintDispatcher { contract_address: mint }
-    )
+    (grails, IMintDispatcher { contract_address: mint })
 }
 
 #[test]
@@ -48,12 +49,72 @@ fn constructor() {
     assert(mint.startTime() == 1707696000_u64, 'invalid start time');
 }
 
+//#[test]
+//#[fork("goerli")]
+//#[should_panic(expected: ('Allocation claimed', ))]
+fn mint() {
+    let (grails, mint) = deploy();
+    grails.setWhitelist(mint.contract_address, true);
+    grails.transfer(mint.contract_address, 1000_000000000000000000);
+    assert(
+        grails.erc20BalanceOf(mint.contract_address) == 1000_000000000000000000,
+        'invalid mint erc20 balance'
+    );
+    assert(grails.erc721BalanceOf(mint.contract_address) == 0, 'invalid mint erc721 balance');
+    //start_warp(CheatTarget::All, mint.startTime());
+    start_prank(CheatTarget::All, alice());
+    ethDispatcher().approve(mint.contract_address, BoundedU256::max());
+    mint.mint();
+    stop_prank(CheatTarget::All);
+}
+
+#[test]
+#[fork("goerli")]
+fn mintWithAllocation() {
+    let (grails, mint) = deploy();
+    mint.seedAllocations();
+    grails.setWhitelist(mint.contract_address, true);
+    grails.transfer(mint.contract_address, 1000_000000000000000000);
+    assert(
+        grails.erc20BalanceOf(mint.contract_address) == 1000_000000000000000000,
+        'invalid mint erc20 balance'
+    );
+    assert(grails.erc721BalanceOf(mint.contract_address) == 0, 'invalid mint erc721 balance');
+    start_prank(CheatTarget::All, alice());
+    ethDispatcher().approve(mint.contract_address, BoundedU256::max());
+    mint.mint();
+    stop_prank(CheatTarget::All);
+    assert(mint.allocation(alice()) == 0, 'invalid alice allocation');
+}
+
+#[test]
+#[fork("goerli")]
+#[should_panic(expected: ('Mint not started',))]
+fn mintPanicNotStarted() {
+    let (grails, mint) = deploy();
+    grails.setWhitelist(mint.contract_address, true);
+    grails.transfer(mint.contract_address, 1000_000000000000000000);
+    start_prank(CheatTarget::All, alice());
+    ethDispatcher().approve(mint.contract_address, BoundedU256::max());
+    mint.mint();
+    stop_prank(CheatTarget::All);
+}
+
 #[test]
 #[fork("goerli")]
 fn seedAllocations() {
-    let (grails, mint) = deploy();
-    grails.setWhitelist(mint.contract_address, true);
-    grails.transfer(alice(), 1_000000000000000000);
-    assert(grails.erc20BalanceOf(alice()) == 1_000000000000000000, 'invalid alice erc20 balance');
-    assert(grails.erc721BalanceOf(alice()) == 1, 'invalid alice erc721 balance');
+    let (_, mint) = deploy();
+    mint.seedAllocations();
+    assert(mint.allocation(alice()) == 1, 'invalid alice allocation');
+    assert(mint.allocation(bob()) == 1, 'invalid bob allocation');
+}
+
+#[test]
+#[fork("goerli")]
+#[should_panic(expected: ('Caller is not the owner',))]
+fn seedAllocationsPanic() {
+    let (_, mint) = deploy();
+    start_prank(CheatTarget::All, alice());
+    mint.seedAllocations();
+    stop_prank(CheatTarget::All);
 }
