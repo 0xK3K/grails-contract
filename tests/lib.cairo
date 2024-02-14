@@ -1,2 +1,3 @@
 mod grails;
-mod mint;
+mod locker;
+mod vault;

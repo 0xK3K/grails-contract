@@ -10,7 +10,7 @@ export const getClassHashFromFile = async (file) => {
 
 export const declareContract = (contractName, env) => {
     return new Promise(function (resolve, reject) {
-        exec(`sncast --profile ${env} declare --contract-name ${contractName}`, (_, stdout, stderr) => {
+        exec(`sncast --profile ${env} declare --package grails --contract-name ${contractName}`, (_, stdout, stderr) => {
             if (stderr) {
                 reject(stderr)
             } else {

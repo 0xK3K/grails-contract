@@ -72,6 +72,15 @@ fn multiTransfer() {
 }
 
 #[test]
+fn testSetTokenURI() {
+    let grails = deploy();
+    let s: ByteArray = "ipfs://bafybeievb4z6bkdakp4h4i6qvw57duzjvwgvek3lubfbd7us7x7l6zv5pe/";
+    let mut data = array![];
+    s.serialize(ref data);
+    grails.setTokenURI(s);
+}
+
+#[test]
 fn transferFractions() {
     let grails = deploy();
     grails.transfer(alice(), 1_182299000000000000);

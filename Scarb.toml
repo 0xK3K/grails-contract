@@ -1,6 +1,6 @@
 [package]
 name = "grails"
-version = "0.1.0"
+version = "1.0.0"
 
 [dependencies]
 alexandria_storage = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
@@ -13,5 +13,10 @@ casm = true
 
 [[tool.snforge.fork]]
 name = "goerli"
-url = "https://starknet-testnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
+url = "https://starknet-goerli.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
+block_id.tag = "Latest"
+
+[[tool.snforge.fork]]
+name = "mainnet"
+url = "https://starknet-mainnet.blastapi.io/cc0d991d-bd8f-45ac-89c3-823291e558b4/rpc/v0_6"
 block_id.tag = "Latest"

@@ -6,9 +6,11 @@
   "license": "MIT",
   "scripts": {
     "declare:dev": "node scripts/declare.js dev",
+    "declare:prod": "node scripts/declare.js prod",
     "deploy:dev": "node scripts/deploy.js dev",
-    "merkle:dev": "node scripts/merkle.js",
-    "upgrade:dev": "node scripts/upgrade.js dev"
+    "deploy:prod": "node scripts/deploy.js prod",
+    "upgrade:dev": "node scripts/upgrade.js dev",
+    "upgrade:prod": "node scripts/upgrade.js prod"
   },
   "dependencies": {
     "node": "^21.2.0",

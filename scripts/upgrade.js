@@ -1,23 +1,36 @@
 import { getClassHashFromFile, upgradeContract } from './utils.js'
 
-const CONTRACT = 'ekuboStrategy.cairo'
-const CONTRACT_ADDRESS = '0x03703e0e79e9e0ec01e858ac00dd3502c4d658b5f4ce719294972b6e9f5c6898'
+const upgradeGrails = async (env) => {
+    const classHash = await getClassHashFromFile('grails.cairo')
+    const contractAddress = '0x02a819b93cc69b45ee5d1a1bfc16954c16f6d35c3873a06c97b95c009bfe502b'
+    const transactionHash = await upgradeContract({ classHash, contractAddress, env })
+    console.log(`Upgraded contract ${contractAddress} (tx: ${transactionHash})`)
+}
 
-const upgrade = async (env) => {
-    const classHash = await getClassHashFromFile(CONTRACT)
-    const contractAddress = CONTRACT_ADDRESS
+const upgradeVault = async (env) => {
+    const classHash = await getClassHashFromFile('vault.cairo')
+    const contractAddress = ''
     const transactionHash = await upgradeContract({ classHash, contractAddress, env })
     console.log(`Upgraded contract ${contractAddress} (tx: ${transactionHash})`)
 }
 
 const main = async () => {
-    const [env] = process.argv.slice(2)
+    const [env, contract] = process.argv.slice(2)
 
     if (env !== 'dev' && env !== 'prod') {
       throw { message: 'env needed' }
     }
 
-    await upgrade(env)
+    if (!contract) {
+        throw { message: 'specify contract' }
+    }
+
+    switch (contract) {
+        case 'Grails':
+            return await upgradeGrails(env)
+        case 'Vault':
+            return await upgradeVault(env)
+    }
 }
 
 main().catch((error) => {

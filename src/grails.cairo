@@ -1,4 +1,4 @@
-// class_hash: 0x6a6aea31854bc16273380e81acb0e6b64d634669e7a7eddc9e52ff147464dd9
+// class_hash: 0x017e3118904dec3de4205250add34fdec8b501752280bf8df384f53040c51dae
 
 #[starknet::interface]
 trait IGrails<TState> {
@@ -8,7 +8,7 @@ trait IGrails<TState> {
     fn approve(ref self: TState, spender: starknet::ContractAddress, amountOrId: u256) -> bool;
     fn balance_of(self: @TState, account: starknet::ContractAddress) -> u256;
     fn balanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
-    fn baseTokenURI(self: @TState) -> felt252;
+    fn baseTokenURI(self: @TState) -> ByteArray;
     fn decimals(self: @TState) -> u8;
     fn erc20BalanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
     fn erc20TotalSupply(self: @TState) -> u256;
@@ -37,12 +37,11 @@ trait IGrails<TState> {
         data: Span<felt252>
     );
     fn setApprovalForAll(ref self: TState, operator: starknet::ContractAddress, approved: bool);
-    fn setDataURI(ref self: TState, dataURI: felt252);
-    fn setTokenURI(ref self: TState, baseTokenURI: felt252);
+    fn setTokenURI(ref self: TState, baseTokenURI: ByteArray);
     fn setWhitelist(ref self: TState, target: starknet::ContractAddress, state: bool);
     fn symbol(self: @TState) -> felt252;
-    fn token_uri(self: @TState, token_id: u256) -> felt252;
-    fn tokenURI(self: @TState, tokenId: u256) -> felt252;
+    fn token_uri(self: @TState, token_id: u256) -> ByteArray;
+    fn tokenURI(self: @TState, tokenId: u256) -> ByteArray;
     fn total_supply(self: @TState) -> u256;
     fn totalSupply(self: @TState) -> u256;
     fn transfer(ref self: TState, to: starknet::ContractAddress, amount: u256) -> bool;
@@ -64,11 +63,14 @@ trait IGrails<TState> {
 
 #[starknet::contract]
 mod Grails {
+    use grails::grails::IGrails;
+    use core::byte_array::ByteArrayTrait;
     use alexandria_storage::list::{List, ListTrait};
     use integer::BoundedU256;
     use openzeppelin::account;
     use openzeppelin::access::ownable::OwnableComponent;
     use openzeppelin::introspection::dual_src5::{DualCaseSRC5, DualCaseSRC5Trait};
+    use openzeppelin::introspection::src5::SRC5Component;
     use openzeppelin::token::erc20;
     use openzeppelin::token::erc721::dual721_receiver::{
         DualCaseERC721Receiver, DualCaseERC721ReceiverTrait
@@ -79,9 +81,15 @@ mod Grails {
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
     component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
+    component!(path: SRC5Component, storage: src5, event: SRC5Event);
 
     #[abi(embed_v0)]
+    impl SRC5Impl = SRC5Component::SRC5Impl<ContractState>;
+    #[abi(embed_v0)]
+    impl SRC5CamelImpl = SRC5Component::SRC5CamelImpl<ContractState>;
+    #[abi(embed_v0)]
     impl OwnableImpl = OwnableComponent::OwnableImpl<ContractState>;
+    impl SRC5InternalImpl = SRC5Component::InternalImpl<ContractState>;
     impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
     impl UpgradeableInternalImpl = UpgradeableComponent::InternalImpl<ContractState>;
 
@@ -89,8 +97,8 @@ mod Grails {
     struct Storage {
         allowance: LegacyMap<(ContractAddress, ContractAddress), u256>,
         balances: LegacyMap<ContractAddress, u256>,
-        baseTokenURI: felt252,
-        dataURI: felt252,
+        baseTokenURI: ByteArray,
+        dataURI: ByteArray,
         getApproved: LegacyMap<u256, ContractAddress>,
         isApprovedForAll: LegacyMap<(ContractAddress, ContractAddress), bool>,
         minted: u256,
@@ -104,6 +112,8 @@ mod Grails {
         totalSupply: u256,
         whitelist: LegacyMap<ContractAddress, bool>,
         #[substorage(v0)]
+        src5: SRC5Component::Storage,
+        #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
         upgradeable: UpgradeableComponent::Storage
@@ -113,10 +123,10 @@ mod Grails {
     #[derive(Drop, starknet::Event)]
     enum Event {
         ApprovalForAll: ApprovalForAll,
-        ERC20Approval: ERC20Approval,
-        ERC20Transfer: ERC20Transfer,
-        ERC721Approval: ERC721Approval,
-        ERC721Transfer: ERC721Transfer,
+        Approval: Approval,
+        Transfer: Transfer,
+        #[flat]
+        SRC5Event: SRC5Component::Event,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -133,39 +143,21 @@ mod Grails {
     }
 
     #[derive(Drop, starknet::Event)]
-    struct ERC20Approval {
+    struct Approval {
         #[key]
         owner: ContractAddress,
         #[key]
         spender: ContractAddress,
-        amount: u256,
+        amountOrId: u256,
     }
 
     #[derive(Drop, starknet::Event)]
-    struct ERC20Transfer {
+    struct Transfer {
         #[key]
         from: ContractAddress,
         #[key]
         to: ContractAddress,
-        amount: u256,
-    }
-
-    #[derive(Drop, starknet::Event)]
-    struct ERC721Approval {
-        #[key]
-        owner: ContractAddress,
-        #[key]
-        spender: ContractAddress,
-        id: u256,
-    }
-
-    #[derive(Drop, starknet::Event)]
-    struct ERC721Transfer {
-        #[key]
-        from: ContractAddress,
-        #[key]
-        to: ContractAddress,
-        id: u256,
+        amountOrId: u256,
     }
 
     mod Errors {
@@ -222,11 +214,11 @@ mod Grails {
                     Errors::UNAUTHORIZED
                 );
                 self.getApproved.write(id, spender);
-                self.emit(ERC721Approval { owner, spender, id });
+                self.emit(Approval { owner, spender, amountOrId: id });
             } else {
                 let amount = amountOrId;
-                self.allowance.write((caller, spender), amountOrId);
-                self.emit(ERC20Approval { owner: caller, spender, amount });
+                self.allowance.write((caller, spender), amount);
+                self.emit(Approval { owner: caller, spender, amountOrId: amount });
             }
 
             true
@@ -242,7 +234,7 @@ mod Grails {
             self.balances.read(account)
         }
 
-        fn baseTokenURI(self: @ContractState) -> felt252 {
+        fn baseTokenURI(self: @ContractState) -> ByteArray {
             self.baseTokenURI.read()
         }
 
@@ -336,12 +328,7 @@ mod Grails {
             self.emit(ApprovalForAll { owner: caller, operator, approved });
         }
 
-        fn setDataURI(ref self: ContractState, dataURI: felt252) {
-            OwnableInternalImpl::assert_only_owner(@self.ownable);
-            self.dataURI.write(dataURI);
-        }
-
-        fn setTokenURI(ref self: ContractState, baseTokenURI: felt252) {
+        fn setTokenURI(ref self: ContractState, baseTokenURI: ByteArray) {
             OwnableInternalImpl::assert_only_owner(@self.ownable);
             self.baseTokenURI.write(baseTokenURI);
         }
@@ -355,12 +342,18 @@ mod Grails {
             self.symbol.read()
         }
 
-        fn token_uri(self: @ContractState, token_id: u256) -> felt252 {
-            ''
+        fn token_uri(self: @ContractState, token_id: u256) -> ByteArray {
+            let mut s = self.baseTokenURI.read();
+            let f = format!("{}", token_id);
+            s.append(@f);
+            s
         }
 
-        fn tokenURI(self: @ContractState, tokenId: u256) -> felt252 {
-            ''
+        fn tokenURI(self: @ContractState, tokenId: u256) -> ByteArray {
+            let mut s = self.baseTokenURI.read();
+            let f = format!("{}", tokenId);
+            s.append(@f);
+            s
         }
 
         fn total_supply(self: @ContractState) -> u256 {
@@ -487,7 +480,7 @@ mod Grails {
             }
 
             self.balances.write(to, self.balances.read(to) + amount);
-            self.emit(ERC20Transfer { from, to, amount });
+            self.emit(Transfer { from, to, amountOrId: amount });
         }
 
         fn _transferERC721(
@@ -506,7 +499,6 @@ mod Grails {
             }
 
             if (to.is_non_zero()) {
-                self.ownerOf.write(id, to);
                 let length = self.ownedLength.read(to);
                 self.owned.write((to, length), id);
                 self.ownedIndex.write(id, length);
@@ -516,7 +508,7 @@ mod Grails {
                 self.ownerOf.write(id, contract_address_const::<0>());
             }
 
-            self.emit(ERC721Transfer { from, to, id });
+            self.emit(Transfer { from, to, amountOrId: id });
         }
 
         fn _transferERC20WithERC721(
