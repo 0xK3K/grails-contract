@@ -39,11 +39,11 @@ const main = async () => {
     }
 
     switch (contract) {
-        case 'Grails':
-            return await deployGrails(env)
-        case 'Locker':
-            return await deployLocker(env)
-        case 'vault':
+        // case 'Grails':
+            // return await deployGrails(env)
+        // case 'Locker':
+            // return await deployLocker(env)
+        case 'Vault':
             return await deployVault(env)
     }
 }

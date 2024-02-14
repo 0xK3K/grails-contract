@@ -9,7 +9,7 @@ const upgradeGrails = async (env) => {
 
 const upgradeVault = async (env) => {
     const classHash = await getClassHashFromFile('vault.cairo')
-    const contractAddress = ''
+    const contractAddress = '0x9c8f75b75354193db06bd8e7bb1f23b2e8412ffe5482254fbccec8c2f2da2a'
     const transactionHash = await upgradeContract({ classHash, contractAddress, env })
     console.log(`Upgraded contract ${contractAddress} (tx: ${transactionHash})`)
 }
