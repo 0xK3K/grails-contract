@@ -113,7 +113,7 @@ mod Vault {
             self.storedLength.write(caller, length);
 
             let grails = self.grails.read();
-            grails.transferFrom(get_contract_address(), caller, id);            
+            grails.transferFrom(get_contract_address(), caller, id);
             self.emit(Retrieve { owner: caller, id });
         }
 

@@ -1,4 +1,4 @@
-// class_hash: 0x017e3118904dec3de4205250add34fdec8b501752280bf8df384f53040c51dae
+// class_hash: 0x6bb314eb252b756bf5dc8e0bb3d94db30cb0fba59ea5f31c3818c075e88256
 
 #[starknet::interface]
 trait IGrails<TState> {
@@ -8,7 +8,7 @@ trait IGrails<TState> {
     fn approve(ref self: TState, spender: starknet::ContractAddress, amountOrId: u256) -> bool;
     fn balance_of(self: @TState, account: starknet::ContractAddress) -> u256;
     fn balanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
-    fn baseTokenURI(self: @TState) -> ByteArray;
+    fn baseTokenURI(self: @TState) -> Array<felt252>;
     fn decimals(self: @TState) -> u8;
     fn erc20BalanceOf(self: @TState, account: starknet::ContractAddress) -> u256;
     fn erc20TotalSupply(self: @TState) -> u256;
@@ -40,8 +40,8 @@ trait IGrails<TState> {
     fn setTokenURI(ref self: TState, baseTokenURI: ByteArray);
     fn setWhitelist(ref self: TState, target: starknet::ContractAddress, state: bool);
     fn symbol(self: @TState) -> felt252;
-    fn token_uri(self: @TState, token_id: u256) -> ByteArray;
-    fn tokenURI(self: @TState, tokenId: u256) -> ByteArray;
+    fn token_uri(self: @TState, token_id: u256) -> Array<felt252>;
+    fn tokenURI(self: @TState, tokenId: u256) -> Array<felt252>;
     fn total_supply(self: @TState) -> u256;
     fn totalSupply(self: @TState) -> u256;
     fn transfer(ref self: TState, to: starknet::ContractAddress, amount: u256) -> bool;
@@ -65,6 +65,7 @@ trait IGrails<TState> {
 mod Grails {
     use grails::grails::IGrails;
     use core::byte_array::ByteArrayTrait;
+    use core::to_byte_array::FormatAsByteArray;
     use alexandria_storage::list::{List, ListTrait};
     use integer::BoundedU256;
     use openzeppelin::account;
@@ -98,7 +99,6 @@ mod Grails {
         allowance: LegacyMap<(ContractAddress, ContractAddress), u256>,
         balances: LegacyMap<ContractAddress, u256>,
         baseTokenURI: ByteArray,
-        dataURI: ByteArray,
         getApproved: LegacyMap<u256, ContractAddress>,
         isApprovedForAll: LegacyMap<(ContractAddress, ContractAddress), bool>,
         minted: u256,
@@ -234,8 +234,12 @@ mod Grails {
             self.balances.read(account)
         }
 
-        fn baseTokenURI(self: @ContractState) -> ByteArray {
-            self.baseTokenURI.read()
+        fn baseTokenURI(self: @ContractState) -> Array<felt252> {
+            array![
+                0x697066733a2f2f62616679626569637a77697a78346e723462356a6c66376e,
+                0x687865726e77706464697a367a347965736e7364696270646d623273796f78,
+                0x676661712f
+            ]
         }
 
         fn decimals(self: @ContractState) -> u8 {
@@ -342,18 +346,30 @@ mod Grails {
             self.symbol.read()
         }
 
-        fn token_uri(self: @ContractState, token_id: u256) -> ByteArray {
-            let mut s = self.baseTokenURI.read();
-            let f = format!("{}", token_id);
-            s.append(@f);
-            s
+        fn token_uri(self: @ContractState, token_id: u256) -> Array<felt252> {
+            let s = token_id.format_as_byte_array(10_u256.try_into().unwrap());
+            let mut a = ArrayTrait::<felt252>::new();
+            s.serialize(ref a);
+            array![
+                0x697066733a2f2f62616679626569637a77697a78346e723462356a6c66376e,
+                0x687865726e77706464697a367a347965736e7364696270646d623273796f78,
+                0x676661712f,
+                *a.at(1),
+                0x2e6a736f6e
+            ]
         }
 
-        fn tokenURI(self: @ContractState, tokenId: u256) -> ByteArray {
-            let mut s = self.baseTokenURI.read();
-            let f = format!("{}", tokenId);
-            s.append(@f);
-            s
+        fn tokenURI(self: @ContractState, tokenId: u256) -> Array<felt252> {
+            let s = tokenId.format_as_byte_array(10_u256.try_into().unwrap());
+            let mut a = ArrayTrait::<felt252>::new();
+            s.serialize(ref a);
+            array![
+                0x697066733a2f2f62616679626569637a77697a78346e723462356a6c66376e,
+                0x687865726e77706464697a367a347965736e7364696270646d623273796f78,
+                0x676661712f,
+                *a.at(1),
+                0x2e6a736f6e
+            ]
         }
 
         fn total_supply(self: @ContractState) -> u256 {

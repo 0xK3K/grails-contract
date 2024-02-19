@@ -74,10 +74,11 @@ fn multiTransfer() {
 #[test]
 fn testSetTokenURI() {
     let grails = deploy();
-    let s: ByteArray = "ipfs://bafybeievb4z6bkdakp4h4i6qvw57duzjvwgvek3lubfbd7us7x7l6zv5pe/";
+    let s: ByteArray = "ipfs://bafybeiczwizx4nr4b5jlf7nhxernwpddiz6z4yesnsdibpdmb2syoxgfaq/";
     let mut data = array![];
     s.serialize(ref data);
     grails.setTokenURI(s);
+    println!("{} {} {} {}", *data.at(0), *data.at(1), *data.at(2), *data.at(3));
 }
 
 #[test]

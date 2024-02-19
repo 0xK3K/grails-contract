@@ -12,7 +12,6 @@ export const declareContract = (contractName, env) => {
     return new Promise(function (resolve, reject) {
         exec(`sncast --profile ${env} declare --package grails --contract-name ${contractName}`, (_, stdout, stderr) => {
             if (stderr) {
-                console.log(stderr)
                 reject(stderr)
             } else {
                 const match = stdout.match(/class_hash: (0x[0-9a-fA-F]+)\ntransaction_hash: (0x[0-9a-fA-F]+)/)
@@ -31,7 +30,6 @@ export const deployContract = ({ classHash, calldata, env }) => {
     return new Promise(function (resolve, reject) {
         exec(command, (_, stdout, stderr) => {
             if (stderr) {
-                console.log(stderr)
                 reject(stderr)
             } else {
                 const match = stdout.match(/contract_address: (0x[0-9a-fA-F]+)\ntransaction_hash: (0x[0-9a-fA-F]+)/)
@@ -45,7 +43,6 @@ export const upgradeContract = ({ classHash, contractAddress, env }) => {
     return new Promise(function (resolve, reject) {
         exec(`sncast --profile ${env} invoke --contract-address ${contractAddress} --function upgrade --calldata ${classHash}`, (_, stdout, stderr) => {
             if (stderr) {
-                console.log(stderr)
                 reject(stderr)
             } else {
                 const match = stdout.match(/command: invoke\ntransaction_hash: (0x[0-9a-fA-F]+)/)
