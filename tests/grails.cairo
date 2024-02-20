@@ -27,6 +27,14 @@ fn deploy() -> IGrailsDispatcher {
 }
 
 #[test]
+fn __craftBaseTokenURI() {
+    let s: ByteArray = "ipfs://bafybeiczwizx4nr4b5jlf7nhxernwpddiz6z4yesnsdibpdmb2syoxgfaq/";
+    let mut data = array![];
+    s.serialize(ref data);
+    println!("{} {} {} {}", *data.at(0), *data.at(1), *data.at(2), *data.at(3));
+}
+
+#[test]
 fn constructor() {
     let grails = deploy();
     assert(grails.name() == 'Grails ERC404', 'invalid name');
@@ -69,16 +77,6 @@ fn multiTransfer() {
     assert(grails.erc721BalanceOf(alice()) == 200, 'invalid alice erc721 balance');
     assert(grails.erc20BalanceOf(bob()) == 0, 'invalid bob erc20 balance');
     assert(grails.erc721BalanceOf(bob()) == 0, 'invalid bob erc721 balance');
-}
-
-#[test]
-fn testSetTokenURI() {
-    let grails = deploy();
-    let s: ByteArray = "ipfs://bafybeiczwizx4nr4b5jlf7nhxernwpddiz6z4yesnsdibpdmb2syoxgfaq/";
-    let mut data = array![];
-    s.serialize(ref data);
-    grails.setTokenURI(s);
-    println!("{} {} {} {}", *data.at(0), *data.at(1), *data.at(2), *data.at(3));
 }
 
 #[test]

@@ -8,7 +8,9 @@ fn nauhcner() -> ContractAddress {
 }
 
 fn locker() -> IGrailsLockerDispatcher {
-    let contract_address = 0x0104ca0f63ca8e5501c7b7e4e618b2e227955ced12c808e274973a9e82681d12.try_into().unwrap();
+    let contract_address = 0x0104ca0f63ca8e5501c7b7e4e618b2e227955ced12c808e274973a9e82681d12
+        .try_into()
+        .unwrap();
     IGrailsLockerDispatcher { contract_address }
 }
 

@@ -37,7 +37,6 @@ trait IGrails<TState> {
         data: Span<felt252>
     );
     fn setApprovalForAll(ref self: TState, operator: starknet::ContractAddress, approved: bool);
-    fn setTokenURI(ref self: TState, baseTokenURI: ByteArray);
     fn setWhitelist(ref self: TState, target: starknet::ContractAddress, state: bool);
     fn symbol(self: @TState) -> felt252;
     fn token_uri(self: @TState, token_id: u256) -> Array<felt252>;
@@ -98,7 +97,6 @@ mod Grails {
     struct Storage {
         allowance: LegacyMap<(ContractAddress, ContractAddress), u256>,
         balances: LegacyMap<ContractAddress, u256>,
-        baseTokenURI: ByteArray,
         getApproved: LegacyMap<u256, ContractAddress>,
         isApprovedForAll: LegacyMap<(ContractAddress, ContractAddress), bool>,
         minted: u256,
@@ -332,11 +330,6 @@ mod Grails {
             self.emit(ApprovalForAll { owner: caller, operator, approved });
         }
 
-        fn setTokenURI(ref self: ContractState, baseTokenURI: ByteArray) {
-            OwnableInternalImpl::assert_only_owner(@self.ownable);
-            self.baseTokenURI.write(baseTokenURI);
-        }
-
         fn setWhitelist(ref self: ContractState, target: ContractAddress, state: bool) {
             OwnableInternalImpl::assert_only_owner(@self.ownable);
             self.whitelist.write(target, state);
@@ -347,29 +340,18 @@ mod Grails {
         }
 
         fn token_uri(self: @ContractState, token_id: u256) -> Array<felt252> {
-            let s = token_id.format_as_byte_array(10_u256.try_into().unwrap());
-            let mut a = ArrayTrait::<felt252>::new();
-            s.serialize(ref a);
-            array![
-                0x697066733a2f2f62616679626569637a77697a78346e723462356a6c66376e,
-                0x687865726e77706464697a367a347965736e7364696270646d623273796f78,
-                0x676661712f,
-                *a.at(1),
-                0x2e6a736f6e
-            ]
+            self.tokenURI(token_id)
         }
 
         fn tokenURI(self: @ContractState, tokenId: u256) -> Array<felt252> {
             let s = tokenId.format_as_byte_array(10_u256.try_into().unwrap());
             let mut a = ArrayTrait::<felt252>::new();
             s.serialize(ref a);
-            array![
-                0x697066733a2f2f62616679626569637a77697a78346e723462356a6c66376e,
-                0x687865726e77706464697a367a347965736e7364696270646d623273796f78,
-                0x676661712f,
-                *a.at(1),
-                0x2e6a736f6e
-            ]
+
+            let mut tokenURI = self.baseTokenURI();
+            tokenURI.append(*a.at(1));
+            tokenURI.append(0x2e6a736f6e);
+            tokenURI
         }
 
         fn total_supply(self: @ContractState) -> u256 {
