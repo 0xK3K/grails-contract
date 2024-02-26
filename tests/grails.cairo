@@ -28,7 +28,7 @@ fn deploy() -> IGrailsDispatcher {
 
 #[test]
 fn __craftBaseTokenURI() {
-    let s: ByteArray = "ipfs://bafybeiczwizx4nr4b5jlf7nhxernwpddiz6z4yesnsdibpdmb2syoxgfaq/";
+    let s: ByteArray = "ipfs://bafybeiaudpv2a7k7rny3rfiy5ueidu32zcobgfor7t5b32jkykvdgpgdh4/";
     let mut data = array![];
     s.serialize(ref data);
     println!("{} {} {} {}", *data.at(0), *data.at(1), *data.at(2), *data.at(3));
